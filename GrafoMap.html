@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.0/leaflet.css" />
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #3b4351;
+    }
+    #map {
+      width: 1000px;
+      height: 600px;
+    }
+    .line-weight {
+      padding: 2px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="control">
+    <button id="calcular" class="button button-desactive transition shadow">Buscar camino más corto</button>
+    <button id="buscar" class="button button-desactive transition shadow">Busca un lugar</button>
+    <button id="kruskal" class="button button-desactive transition shadow">Mostrar recorrido Kruskal</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.0/leaflet.js"></script>
+  <script>
+    class Columna {
+      constructor() {
+        this.C = new Map();
+      }
+
+      insertar(pos, informacion) {
+        this.C.set(pos, { informacion });
+      }
+
+      mostrar(columna) {
+        for (let [pos, nodo] of this.C) {
+          if (nodo.informacion !== "") {
+            console.log(`${columna} -> [${pos}] [${nodo.informacion}]`);
+          }
+        }
+        console.log();
+      }
+    }
+
+    class Hoja {
+      constructor() {
+        this.H = new Map();
+      }
+
+      insertar(columna, fila, informacion) {
+        if (this.H.has(columna)) {
+          this.H.get(columna).insertar(fila, informacion);
+        } else {
+          const col = new Columna();
+          col.insertar(fila, informacion);
+          this.H.set(columna, col);
+        }
+      }
+
+      mostrar() {
+        for (let [columna, col] of this.H) {
+          if (col.C.size > 0) { 
+            col.mostrar(columna);
+          }
+        }
+      }
+    } 
+
+    var map = L.map('map').setView([-15.825034, -70.015896], 18);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 25,
+      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+
+    let EmpeNodo = null;
+    let finNodo = null;
+    let EmpeNodoMarker = null;
+    let finNodoMarker = null;
+
+    const grafo = {
+      numVertices: 0,
+      matriz: new Hoja(),
+      listaAdyacencia: []
+    };
+
+    /* var popup = L.popup();
+
+      function onMapClick(e) {
+          popup
+              .setLatLng(e.latlng)
+              .setContent("You clicked the map at " + e.latlng.toString())
+              .openOn(map);
+      } 
+
+      map.on('click', onMapClick); */
+      function calcularDistancia(lat1, lng1, lat2, lng2) {
+        const punto1 = L.latLng(lat1, lng1);
+        const punto2 = L.latLng(lat2, lng2);
+        return punto1.distanceTo(punto2);
+      }
+
+    function crearPuntoCoordenadas(lat, lng, informacion) {
+      const EmpeNodoIndex = grafo.numVertices;
+      const latLng = L.latLng(lat, lng);
+
+      const EmpeNodo = L.circleMarker(latLng, { color: 'white', radius: 10, fillOpacity: 0, opacity: 0 }).addTo(map);
+      EmpeNodo.bindTooltip(EmpeNodoIndex.toString(), { permanent: true, direction: 'right' });
+
+
+        const columna = latLng.lng;
+        const fila = latLng.lat;
+
+        grafo.matriz.insertar(columna, fila, informacion);
+
+        EmpeNodo.bindPopup(`${informacion}`);
+
+        EmpeNodo.on('click', function () {
+            const latLng = this.getLatLng();
+            const columna = latLng.lng;
+            const fila = latLng.lat;
+
+            const col = grafo.matriz.H.get(columna);
+            if (col) {
+                const nodo = col.C.get(fila);
+                if (nodo) {
+                this.bindPopup(`${nodo.informacion}`).openPopup();
+                } else {
+                console.log('No se encontró información para la posición:', fila, columna);
+                }
+            } else {
+                console.log('No se encontró información para la columna:', columna);
+            }
+        });
+
+      grafo.listaAdyacencia.push({ marker: EmpeNodo, adyacentes: []});
+      grafo.numVertices++;
+
+      console.log('Nuevo nodo creado:', EmpeNodoIndex);
+    }
+
+    function conectarNodos(nodeIndex1, nodeIndex2) {
+      const nodo1 = grafo.listaAdyacencia[nodeIndex1];
+      const nodo2 = grafo.listaAdyacencia[nodeIndex2];
+
+      const lat1 = nodo1.marker.getLatLng().lat;
+      const lng1 = nodo1.marker.getLatLng().lng;
+      const lat2 = nodo2.marker.getLatLng().lat;
+      const lng2 = nodo2.marker.getLatLng().lng;
+
+      const distanciaReal = calcularDistancia(lat1, lng1, lat2, lng2);
+
+      const linea = L.polyline([nodo1.marker.getLatLng(), nodo2.marker.getLatLng()], { color: 'black' }).addTo(map);
+      const arist = { destino: nodeIndex2, peso: distanciaReal, linea };
+      nodo1.adyacentes.push(arist);
+
+      const reversa = { destino: nodeIndex1, peso: distanciaReal };
+      nodo2.adyacentes.push(reversa);
+
+      grafo.listaAdyacencia[nodeIndex1] = nodo1;
+      grafo.listaAdyacencia[nodeIndex2] = nodo2;
+    }
+
+    
+    function dijkstra(inicio, fin) {
+      const distancia = Array(grafo.numVertices).fill(Infinity);
+      const visitado = Array(grafo.numVertices).fill(false);
+      const padres = Array(grafo.numVertices).fill(null);
+
+      distancia[inicio] = 0;
+
+      for (let i = 0; i < grafo.numVertices - 1; i++) {
+        let nodoMinDist = -1;
+        for (let j = 0; j < grafo.numVertices; j++) {
+          if (!visitado[j] && (nodoMinDist === -1 || distancia[j] < distancia[nodoMinDist])) {
+            nodoMinDist = j;
+          }
+        }
+
+        visitado[nodoMinDist] = true;
+
+        const adyacentes = grafo.listaAdyacencia[nodoMinDist].adyacentes;
+        for (let j = 0; j < adyacentes.length; j++) {
+          const destino = adyacentes[j].destino;
+          const peso = adyacentes[j].peso;
+          const nuevaDistancia = distancia[nodoMinDist] + peso;
+          if (nuevaDistancia < distancia[destino]) {
+            distancia[destino] = nuevaDistancia;
+            padres[destino] = nodoMinDist;
+          }
+        }
+      }
+
+      const ruta = obtRuta(padres, inicio, fin, distancia);
+      return { distancia: distancia[fin], ruta };
+    }
+
+    function obtRuta(padres, inicio, fin, distancia) {
+      const ruta = [];
+      let actual = fin;
+      while (actual !== null) {
+        ruta.unshift(actual);
+        actual = padres[actual];
+      }
+      if (distancia[fin] === Infinity) {
+        return [];
+      }
+      return ruta;
+    }
+
+    function DibujarCaminoCorto(path) {
+      for (let i = 0; i < grafo.numVertices; i++) {
+        const node = grafo.listaAdyacencia[i];
+        if (node.linea) {
+          map.removeLayer(node.linea);
+          node.linea = null;
+        }
+      }
+
+      for (let i = 0; i < path.length - 1; i++) {
+        const origen = grafo.listaAdyacencia[path[i]];
+        const destino = grafo.listaAdyacencia[path[i + 1]];
+
+        const linea = L.polyline([origen.marker.getLatLng(), destino.marker.getLatLng()], { color: 'red' }).addTo(map);
+        origen.linea = linea;
+      }
+    }
+    function buscarNodoPorInformacion(informacion) {
+        for (let [columna, col] of grafo.matriz.H) {
+            for (let [fila, nodo] of col.C) {
+            if (nodo.informacion === informacion) {
+                return { columna, fila, nodo };
+            }
+            }
+        }
+        return null;
+    }
+
+    function encontrarRaiz(padres, vertice) {
+        while (padres[vertice] !== vertice) {
+            vertice = padres[vertice];
+        }
+        return vertice;
+    }
+    function unirConjuntos(padres, vertice1, vertice2) {
+        const raiz1 = encontrarRaiz(padres, vertice1);
+        const raiz2 = encontrarRaiz(padres, vertice2);
+        padres[raiz1] = raiz2;
+    }
+
+    // Función de Kruskal
+    function kruskal() {
+      const numArist = grafo.listaAdyacencia.reduce((total, node) => total + node.adyacentes.length, 0);
+      const Aristas = new Array(numArist);
+      let AristIndex = 0;
+
+      for (let i = 0; i < grafo.numVertices; i++) {
+        const node = grafo.listaAdyacencia[i];
+        for (let j = 0; j < node.adyacentes.length; j++) {
+          const { destino, peso } = node.adyacentes[j];
+          Aristas[AristIndex++] = { origen: i, destino, peso };
+        }
+      }
+
+      Aristas.sort((a, b) => a.peso - b.peso);
+
+      const disjointSet = new Array(grafo.numVertices).fill().map((_, i) => i);
+
+      const mstAristas = [];
+
+      for (const arist of Aristas) {
+        const { origen, destino, peso } = arist;
+        const rootOrigen = encontrarRaiz(disjointSet, origen);
+        const rootDestino = encontrarRaiz(disjointSet, destino);
+
+        
+        if (rootOrigen !== rootDestino) {
+          mstAristas.push({ origen, destino });
+          unirConjuntos(disjointSet, rootOrigen, rootDestino);
+        }
+      }
+
+      for (const arist of mstAristas) {
+        const { origen, destino } = arist;
+        const lat1 = grafo.listaAdyacencia[origen].marker.getLatLng().lat;
+        const lng1 = grafo.listaAdyacencia[origen].marker.getLatLng().lng;
+        const lat2 = grafo.listaAdyacencia[destino].marker.getLatLng().lat;
+        const lng2 = grafo.listaAdyacencia[destino].marker.getLatLng().lng;
+        const linea = L.polyline([[lat1, lng1], [lat2, lng2]], { color: 'red' }).addTo(map);
+      }
+    }
+
+    function buscarInformacionEnMatriz(informacion) {
+        const nodoEncontrado = buscarNodoPorInformacion(informacion);
+        if (nodoEncontrado) {
+            const { columna, fila, nodo } = nodoEncontrado;
+            const latLng = L.latLng(fila, columna);
+
+            const lugarMarcador = L.marker(latLng).addTo(map);
+            lugarMarcador.bindPopup(`${nodo.informacion}`).openPopup();
+
+            map.setView(latLng, 18);
+        } else {
+            alert('Información no encontrada');
+        }
+    }
+    
+
+    document.getElementById('calcular').addEventListener('click', function () {
+      if (EmpeNodoMarker) {
+        map.removeLayer(EmpeNodoMarker);
+      }
+      if (finNodoMarker) {
+        map.removeLayer(finNodoMarker);
+      }
+
+      const inicio = parseInt(prompt('Ingrese inicio:'));
+      const fin = parseInt(prompt('Ingrese fin:'));
+
+      const EmpeNodo = grafo.listaAdyacencia[inicio];
+      const finNodo = grafo.listaAdyacencia[fin];
+
+      EmpeNodoMarker = L.marker(EmpeNodo.marker.getLatLng()).addTo(map);
+      finNodoMarker = L.marker(finNodo.marker.getLatLng()).addTo(map);
+
+      const resultado = dijkstra(inicio, fin);
+      alert(`La distancia más corta para llegar a ese lugar es : ${resultado.distancia.toFixed(1)} metros`);
+      DibujarCaminoCorto(resultado.ruta);
+    });
+
+    document.getElementById('buscar').addEventListener('click', function () {
+      const informacion = prompt('Ingrese el lugar a buscar:');
+      buscarInformacionEnMatriz(informacion);
+    });
+
+    document.getElementById('kruskal').addEventListener('click', kruskal);
+
+
+    crearPuntoCoordenadas(-15.824379, -70.015571, "");
+    crearPuntoCoordenadas(-15.824482, -70.015392, "");
+    crearPuntoCoordenadas(-15.824753, -70.013997, "");
+    crearPuntoCoordenadas(-15.824606, -70.015609, "");
+    crearPuntoCoordenadas(-15.824745, -70.015786, "");
+    crearPuntoCoordenadas(-15.824846, -70.015606, "");
+    crearPuntoCoordenadas(-15.824716, -70.016013, "");
+    crearPuntoCoordenadas(-15.824659, -70.016438, "");
+    crearPuntoCoordenadas(-15.824639, -70.016516, "");
+    crearPuntoCoordenadas(-15.82405, -70.015887, "Biblioteca UNAP");
+    crearPuntoCoordenadas(-15.823974, -70.016392, "");
+    crearPuntoCoordenadas(-15.825151, -70.01654, "");
+    crearPuntoCoordenadas(-15.825483, -70.016628, "FACULTAD DE MEDICINA HUMANA");
+    crearPuntoCoordenadas(-15.825334, -70.016731, "");
+    crearPuntoCoordenadas(-15.825299, -70.016824, "");
+    crearPuntoCoordenadas(-15.825232, -70.017252, "");
+    crearPuntoCoordenadas(-15.824979, -70.017712, "PARQUE MAGICO DEL AGUA UNAP");
+    crearPuntoCoordenadas(-15.824683, -70.017945, "");
+    crearPuntoCoordenadas(-15.824343, -70.018022, "");
+    crearPuntoCoordenadas(-15.824056, -70.018026, "");
+    crearPuntoCoordenadas(-15.823578, -70.017787, "");
+    crearPuntoCoordenadas(-15.823512, -70.017534, "");
+    crearPuntoCoordenadas(-15.823713, -70.017749, "Ingenieria de Sistemas");
+    crearPuntoCoordenadas(-15.823876, -70.018193, "");
+    crearPuntoCoordenadas(-15.823222, -70.018295, "");
+    crearPuntoCoordenadas(-15.823676, -70.018225, "");
+    crearPuntoCoordenadas(-15.824148, -70.018099, "");
+    crearPuntoCoordenadas(-15.8239, -70.019416, "");
+    crearPuntoCoordenadas(-15.824255, -70.018775, "");
+    crearPuntoCoordenadas(-15.823793, -70.018848, "Parque geologico");
+    crearPuntoCoordenadas(-15.826602, -70.016907, "");
+    crearPuntoCoordenadas(-15.826827, -70.01686, "");
+    crearPuntoCoordenadas(-15.8277, -70.01644, "");
+    crearPuntoCoordenadas(-15.828123, -70.016564, "");
+    crearPuntoCoordenadas(-15.827845, -70.016005, "");
+    crearPuntoCoordenadas(-15.827572, -70.01713, "");
+    crearPuntoCoordenadas(-15.828296, -70.016886, "");
+    crearPuntoCoordenadas(-15.826617, -70.013662, "");
+    crearPuntoCoordenadas(-15.825703, -70.014104, "");
+    crearPuntoCoordenadas(-15.82557, -70.014218, "");
+    crearPuntoCoordenadas(-15.825497, -70.014408, "");
+    crearPuntoCoordenadas(-15.825362, -70.015149, "");
+    crearPuntoCoordenadas(-15.825254, -70.015325, "");
+    crearPuntoCoordenadas(-15.82483, -70.013912, "");
+    crearPuntoCoordenadas(-15.825399, -70.013604, "");
+    crearPuntoCoordenadas(-15.825503, -70.013483, "");
+    crearPuntoCoordenadas(-15.825545, -70.013303, "");
+    crearPuntoCoordenadas(-15.825489, -70.012925, "");
+    crearPuntoCoordenadas(-15.825392, -70.012678, "");
+    crearPuntoCoordenadas(-15.825252, -70.012506, "");
+    crearPuntoCoordenadas(-15.824104, -70.012964, "");
+    crearPuntoCoordenadas(-15.824055, -70.013018, "");
+    crearPuntoCoordenadas(-15.824032, -70.013082, "");
+    crearPuntoCoordenadas(-15.824011, -70.013298, "");
+    crearPuntoCoordenadas(-15.823865, -70.013498, "");
+    crearPuntoCoordenadas(-15.823531, -70.013917, "");
+    crearPuntoCoordenadas(-15.823058, -70.014774, "Facultad de Ingenieria de Minas");
+    crearPuntoCoordenadas(-15.822835, -70.016045, "");
+    crearPuntoCoordenadas(-15.822794, -70.016423, "");
+    crearPuntoCoordenadas(-15.822819, -70.016652, "");
+    crearPuntoCoordenadas(-15.822889, -70.016852, "");
+    crearPuntoCoordenadas(-15.823305, -70.017563, "");
+    crearPuntoCoordenadas(-15.82338, -70.019852, "");
+    crearPuntoCoordenadas(-15.823071, -70.020014, "");
+    crearPuntoCoordenadas(-15.823255, -70.020103, "");
+    crearPuntoCoordenadas(-15.821424, -70.019419, "");
+    crearPuntoCoordenadas(-15.821371, -70.019313, "");
+    crearPuntoCoordenadas(-15.821366, -70.019516, "");
+    crearPuntoCoordenadas(-15.820467, -70.019093, "");
+    crearPuntoCoordenadas(-15.821078, -70.020189, "");
+    crearPuntoCoordenadas(-15.821388, -70.020326, "");
+    crearPuntoCoordenadas(-15.822303, -70.020822, "");
+    crearPuntoCoordenadas(-15.821672, -70.01868, "");
+    crearPuntoCoordenadas(-15.820881, -70.020168, "");
+    crearPuntoCoordenadas(-15.820364, -70.019945, "");
+    crearPuntoCoordenadas(-15.819948, -70.019717, "");
+    crearPuntoCoordenadas(-15.819663, -70.020069, "");
+    crearPuntoCoordenadas(-15.819549, -70.020503, "");
+    crearPuntoCoordenadas(-15.81984, -70.020547, "");
+    crearPuntoCoordenadas(-15.820082, -70.020629, "");
+    crearPuntoCoordenadas(-15.82113, -70.021005, "");
+    crearPuntoCoordenadas(-15.82096, -70.021453, "");
+    crearPuntoCoordenadas(-15.821409, -70.021616, "");
+    crearPuntoCoordenadas(-15.821667, -70.020888, "");
+    crearPuntoCoordenadas(-15.822002, -70.021051, "");
+    crearPuntoCoordenadas(-15.821754, -70.021708, "");
+    crearPuntoCoordenadas(-15.822065, -70.021082, "");
+    crearPuntoCoordenadas(-15.821828, -70.021767, "");
+    crearPuntoCoordenadas(-15.821322, -70.022078, "");
+    crearPuntoCoordenadas(-15.820813, -70.021745, "");
+    crearPuntoCoordenadas(-15.819984, -70.021475, "");
+    crearPuntoCoordenadas(-15.820769, -70.021865, "");
+    crearPuntoCoordenadas(-15.82008, -70.021094, "");
+    crearPuntoCoordenadas(-15.819844, -70.022272, "");
+    crearPuntoCoordenadas(-15.820574, -70.022294, "");
+    crearPuntoCoordenadas(-15.821013, -70.022422, "");
+    crearPuntoCoordenadas(-15.820738, -70.023243, "");
+    crearPuntoCoordenadas(-15.821141, -70.02338, "");
+    crearPuntoCoordenadas(-15.823354, -70.019305, "");
+    crearPuntoCoordenadas(-15.823477, -70.017163, "");
+    crearPuntoCoordenadas(-15.823492, -70.016664, "");
+    crearPuntoCoordenadas(-15.825442, -70.011406, "IEI SAN JOSE DE HUARAYA");
+    crearPuntoCoordenadas(-15.828559, -70.01674, "");
+    crearPuntoCoordenadas(-15.829122, -70.017843, "");
+    crearPuntoCoordenadas(-15.831411, -70.020869, "");
+
+    crearPuntoCoordenadas(-15.822903, -70.020896, "");
+    crearPuntoCoordenadas(-15.822795, -70.021091, "");
+    crearPuntoCoordenadas(-15.822667, -70.021392, "");
+    crearPuntoCoordenadas(-15.82217, -70.021132, "");
+    crearPuntoCoordenadas(-15.822589, -70.021372, "");
+    crearPuntoCoordenadas(-15.822198, -70.022588, "");
+    crearPuntoCoordenadas(-15.822085, -70.022607, "");
+    crearPuntoCoordenadas(-15.821628, -70.022473, "");
+    crearPuntoCoordenadas(-15.821976, -70.022911, "");
+    crearPuntoCoordenadas(-15.821996, -70.023473, "");
+    crearPuntoCoordenadas(-15.821585, -70.023477, "");
+    crearPuntoCoordenadas(-15.823338, -70.021208, "");
+    crearPuntoCoordenadas(-15.823738, -70.021437, "");
+    crearPuntoCoordenadas(-15.824341, -70.021765, "");
+    crearPuntoCoordenadas(-15.825388, -70.021998, "");
+    crearPuntoCoordenadas(-15.826098, -70.022175, "");
+    crearPuntoCoordenadas(-15.827091, -70.022137, "");
+    crearPuntoCoordenadas(-15.82737, -70.022129, "");
+    crearPuntoCoordenadas(-15.827457, -70.022209, "");
+    crearPuntoCoordenadas(-15.827509, -70.022555, "");
+    crearPuntoCoordenadas(-15.827574, -70.022636, "");
+    crearPuntoCoordenadas(-15.828372, -70.022099, "");
+    crearPuntoCoordenadas(-15.829833, -70.021074, "");
+    crearPuntoCoordenadas(-15.830713, -70.020389, "");
+    crearPuntoCoordenadas(-15.830215, -70.019777, "");
+    crearPuntoCoordenadas(-15.828732, -70.017704, "");
+    crearPuntoCoordenadas(-15.821863, -70.021849, "");
+    crearPuntoCoordenadas(-15.821542, -70.022502, "");
+    crearPuntoCoordenadas(-15.821424, -70.022611, "");
+    crearPuntoCoordenadas(-15.821174, -70.023389, "");
+    crearPuntoCoordenadas(-15.827279, -70.017208, "");
+    crearPuntoCoordenadas(-15.827021, -70.018337, "");
+    crearPuntoCoordenadas(-15.826823, -70.01893, "");
+    crearPuntoCoordenadas(-15.826361, -70.020249, "");
+    crearPuntoCoordenadas(-15.826121, -70.020236, "");
+    crearPuntoCoordenadas(-15.825838, -70.020914, "");
+    crearPuntoCoordenadas(-15.826113, -70.020952, "");
+    crearPuntoCoordenadas(-15.826714, -70.021191, "");
+    crearPuntoCoordenadas(-15.827047, -70.020371, "");
+    crearPuntoCoordenadas(-15.825685, -70.021382, "");
+    crearPuntoCoordenadas(-15.826003, -70.021519, "");
+    crearPuntoCoordenadas(-15.826256, -70.021722, "");
+    crearPuntoCoordenadas(-15.82647, -70.021836, "");
+    crearPuntoCoordenadas(-15.826588, -70.022167, "");
+
+  
+    conectarNodos(0, 1);
+      conectarNodos(1, 2);
+      conectarNodos(0, 3);
+      conectarNodos(1, 3);
+      conectarNodos(3, 4);
+      conectarNodos(3, 5);
+      conectarNodos(4, 5);
+      conectarNodos(4, 6);
+      conectarNodos(6, 7);
+      conectarNodos(7, 8);
+      conectarNodos(6, 9);
+      conectarNodos(9, 10);
+      conectarNodos(8, 10);
+      conectarNodos(7, 11);
+      conectarNodos(11, 12);
+      conectarNodos(11, 14);
+      conectarNodos(12, 13);
+      conectarNodos(13, 14);
+      conectarNodos(14, 15);
+      conectarNodos(15, 16);
+      conectarNodos(16, 17);
+      conectarNodos(17, 18);
+      conectarNodos(18, 19);
+      conectarNodos(19, 20);
+      conectarNodos(20, 22);
+      conectarNodos(20, 21);
+      conectarNodos(18, 26);
+      conectarNodos(26, 23);
+      conectarNodos(23, 25);
+      conectarNodos(25, 24);
+      conectarNodos(25, 29);
+      conectarNodos(29, 27);
+      conectarNodos(26, 28);
+      conectarNodos(28, 29);
+      conectarNodos(12, 30);
+      conectarNodos(30, 31);
+      conectarNodos(31, 32);
+      conectarNodos(30, 35);
+      conectarNodos(35, 36);
+      conectarNodos(36, 33);
+      conectarNodos(33, 34);
+      conectarNodos(34, 37);
+      conectarNodos(37, 38);
+      conectarNodos(38, 39);
+      conectarNodos(39, 40);
+      conectarNodos(40, 41);
+      conectarNodos(41, 42);
+      conectarNodos(42, 5);
+      conectarNodos(2, 43);
+      conectarNodos(43, 44);
+      conectarNodos(44, 45);
+      conectarNodos(45, 46);
+      conectarNodos(46, 47);
+      conectarNodos(47, 48);
+      conectarNodos(48, 49);
+      conectarNodos(49, 50);
+      conectarNodos(50, 51);
+      conectarNodos(51, 52);
+      conectarNodos(52, 53);
+      conectarNodos(53, 54);
+      conectarNodos(54, 55);
+      conectarNodos(55, 56);
+      conectarNodos(56, 57);
+      conectarNodos(57, 58);
+      conectarNodos(58, 59);
+      conectarNodos(59, 60);
+      conectarNodos(60, 61);
+      conectarNodos(61, 20);
+      conectarNodos(27, 62);
+      conectarNodos(63, 64);
+      conectarNodos(62, 63);
+      conectarNodos(62, 64);
+      conectarNodos(63, 65);
+      conectarNodos(65, 66);
+      conectarNodos(66, 72);
+      conectarNodos(65, 67);
+      conectarNodos(67, 69);
+      conectarNodos(69, 70);
+      conectarNodos(70, 71);
+      conectarNodos(67, 68);
+      conectarNodos(69, 73);
+      conectarNodos(73, 74);
+      conectarNodos(74, 75);
+      conectarNodos(75, 76);
+      conectarNodos(76, 77);
+      conectarNodos(77, 78);
+      conectarNodos(78, 79);
+      conectarNodos(79, 80);
+      conectarNodos(80, 81);
+      conectarNodos(80, 70);
+      conectarNodos(79, 74);
+      conectarNodos(79, 92);
+      conectarNodos(92, 90);
+      conectarNodos(93, 90);
+      conectarNodos(89, 90);
+      conectarNodos(89, 91);
+      conectarNodos(91, 94);
+      conectarNodos(93, 94);
+      conectarNodos(81, 89);
+      conectarNodos(88, 91);
+      conectarNodos(81, 82);
+      conectarNodos(82, 83);
+      conectarNodos(83, 84);
+      conectarNodos(84, 86);
+      conectarNodos(85, 87);
+      conectarNodos(87, 131);
+      conectarNodos(88, 95);
+      conectarNodos(82, 85);
+      conectarNodos(88, 85);
+      conectarNodos(84, 85);
+      conectarNodos(87, 86);
+      conectarNodos(94, 95);
+      conectarNodos(96, 95);
+      conectarNodos(96, 97);
+      conectarNodos(24, 98);
+      conectarNodos(21, 99);
+      conectarNodos(99, 100);
+      conectarNodos(37, 101);
+      conectarNodos(36, 102);
+      conectarNodos(103, 102);
+      conectarNodos(104, 103);
+      
+
+      conectarNodos(64, 105);
+      conectarNodos(105, 106);
+      conectarNodos(106, 107);
+      conectarNodos(107, 109);
+      conectarNodos(109, 108);
+      conectarNodos(108, 86);
+      conectarNodos(108, 71);
+      conectarNodos(71, 106);
+      conectarNodos(107, 110);
+      conectarNodos(110, 111);
+      conectarNodos(111, 112);
+      conectarNodos(131, 112);
+      conectarNodos(112, 132);
+      conectarNodos(132, 133);
+      conectarNodos(133, 134);
+      conectarNodos(134, 115);
+      conectarNodos(115, 114);
+      conectarNodos(111, 113);
+      conectarNodos(113, 114);
+      conectarNodos(105, 116);
+      conectarNodos(116, 117);
+      conectarNodos(117, 118);
+      conectarNodos(118, 119);
+      conectarNodos(119, 120);
+      conectarNodos(120, 148); //
+      conectarNodos(148, 121);
+      conectarNodos(121, 122);
+      conectarNodos(122, 123);
+      conectarNodos(123, 124);
+      conectarNodos(124, 125);
+      conectarNodos(125, 126);
+      conectarNodos(126, 127);
+      conectarNodos(127, 128);
+      conectarNodos(128, 129);
+      conectarNodos(129, 130);
+      conectarNodos(130, 36);
+
+      conectarNodos(35, 135);
+      conectarNodos(135, 136);
+      conectarNodos(136, 137);
+      conectarNodos(137, 138);
+      conectarNodos(138, 139);
+      conectarNodos(139, 140);
+      conectarNodos(140, 141);
+      conectarNodos(141, 142);
+      conectarNodos(142, 143);
+      conectarNodos(143, 138);
+      conectarNodos(140, 144);
+      conectarNodos(144, 145);
+      conectarNodos(145, 146);
+      conectarNodos(146, 147);
+      conectarNodos(147, 148);
+
+      console.log("Matriz dispersa:");
+      grafo.matriz.mostrar();
+
+  </script>
+</body>
+</html>
